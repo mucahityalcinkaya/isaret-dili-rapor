@@ -1,0 +1,29 @@
+Öncelikle dataset olarak wlasl dataseti seçtik. Konuyu daha özel bi tarafa çekmek için okuma-yazma bilmeyen sadece işaret dili ile iletişim kurabilen insanlar odak noktamız. wlasl datasetinde hastane-acil servide kullanılabilecek 249 farklı kelime belirledik. Datasetin kendi sayfandaki kodlar sorunlu olduğundan dolayı Kaggledan aldık. Yaklaşık 2000 kelime içeren daatsetten 249 kelime filtreledik.
+
+
+İLK AŞAMA İSKELET VERİSİ ÇIKARIMI
+
+Yapılan literatür taramalarında genellikle verilerden iskelet verisi çıkarılarak eğitimler yapıldığı görüldü. Kullanılan yöntemler Mediapipe ve OpenPose idi. OpenPose genellikle daha atıf yapılan ama baba makalelerde iken Mediapipe daha güncel ve daha yüksek doğruluk sonuçları almış araştırmalarda vardı. Ayrıca makalelerden bağımsız yapılan araştırmalarda MediaPipe Google çatısı altında ve sürekli olarak güncelleme alırken OpenPose ise çok nadir güncelleme almaktaydı.
+Bu yüzden Mediapipe Holistic kullanmaya karar verdik.
+
+Mediapipe holistic 3 farklı bölümde landmarks çıkartan bi yapı. 
+
+1-) Yüz En çok nokta olan bölge ana amacı yüz ifadeleri bulmak için zaten=468 nokta 
+2-) Poz vücutun belli başlı noktaları (omuz, dirsek, kalça, diz, ayak bileği gibi) 
+3-) Eller Sağda 21 solda 21 olmak üzere toplam 42 nokta
+
+Literatür taramalarından Openpose kullanan makaleleri çıkardık ve dikkatimizi Mediapipe holistic kullananlara yönelttik. İki farklı yöntem vardı holistic için
+
+1-) Bütün noktaları kullananlar Bazı makalelerde holistic için bi önayar yapılmamış ve direkt olarak bütün noktaları alıyordu ama yüz noktalarının sayısı aşırı fazla olduğu için ve işaret dilinde yüz kullanımının çok fazla yeri olmadığı için bu noktalar gürültü yapıyordu. 
+2-) Bazı noktaları kullanmayanlar Bazıları ise bütün yüz noktalarını atmıştı veya sayılarını çok azaltmıştı. Poz noktaların ise sadece üst vücut olacak şekilde düzenledir. En iyi doğruluk sonuçları bu yöntemle alınmıştı
+
+Biz de makaleleri inceleyip sadece omuz, dirsek gibi üst vücut noktalarını ve yüzdeki ağız, yüz, kaş gibi noktaları aldık bu sayede gürültüler daha az olacaktı. İlk önce 74 nokta kullandık. 42 El + 11 Poz + 21 Yüz lakin bu yöntemle çıkarılan iskelet verisi ile eğitilen modellerin başarısı aşırı düşük geliyordu. Kaggle'dan aldığımız görüntülerdeki video kalitesi kötü olduğundan yüz noktalarını düzgün çekemiyor, gürültü oluşturuyordu. Biz de düzenleme yapıp 21 Sağ El + 21 Sol El + 9 Poz noktası kullanarak yeniden iskelet verileri çıkardık. iskelet verilerini 64 eşit aralıklı  frame olacak şekilde düzenledik. Formatı standartlaştırdık. Vücut ölçüsüne göre ölçekledik. Kişinin kamera uzaklığı değişse bile merkezde varsayılcak. Omuza göre ölçeklendirdik. Farklı vücut ölçüleri için omuzlar arasında referans alıp buna göre normalize ettik. İşin sonunda (64,51,3) ölçekli npy dosyalarımız oluştu.
+
+Eğitim
+
+Model olarak Conv1d based (Spatial + Temporal) modeli eğittik. Verileri %80 train %20 val olarak her kelimeden en az 2 tane örnek validation kısmında olacak şekilde böldük. Model Spatial kısımda konumsal özellikleri analiz ederken, Temporal bölüm hareketi analiz ediyor. 5 tip Augmentation adımı uyguladık (Spatial Flip, Scale, Shift, Noise, Rotation). Colabda A100 de eğitim yaptık. Eğitim sonunda en iyi Top-k 1 de en iyi değerimiz %58.25 iken Top-k 5 de %87.1
+
+
+LLM Eğitim
+
+Model videolardan kelimeleri yakalayabiliyordu ama hastanın iletişim kuracağı kişinin anlaması için kelimelerin cümleye çevrilmesi gerekiyordu. Biz de kelimeleri vererek deepseek' e cümleler oluşturmasını sağladık. (i + head + pain = i have a head pain ) Sonra bu verileri train/val/test olarak böldük. System promptumuzu hazırladık. Qwen2.5-3B modelini LoRA yöntemini kullanarak eğitime hazırladık. Eğitim bittikten sonra test setinde loss 0.0518 perplexity ise 1.05 çıktı.
